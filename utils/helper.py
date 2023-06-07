@@ -1,8 +1,7 @@
 '''
 Created on Aug 19, 2016
-@author: Xiang Wang (xiangwang@u.nus.edu)
 '''
-__author__ = "xiangwang"
+__author__ = "ffff"
 import os
 import re
 
