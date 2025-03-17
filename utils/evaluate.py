@@ -67,7 +67,7 @@ def ranklist_by_sorted(user_pos_test, test_items, rating, Ks):
     auc = get_auc(item_score, user_pos_test)
     return r, auc
 
-def get_performance(user_pos_test, r, auc, Ks):
+def get_performance(user_pos_test, r, Ks):
     precision, recall, ndcg, hit_ratio = [], [], [], []
 
     for K in Ks:
@@ -77,7 +77,7 @@ def get_performance(user_pos_test, r, auc, Ks):
         hit_ratio.append(hit_at_k(r, K))
 
     return {'recall': np.array(recall), 'precision': np.array(precision),
-            'ndcg': np.array(ndcg), 'hit_ratio': np.array(hit_ratio), 'auc': auc}
+            'ndcg': np.array(ndcg), 'hit_ratio': np.array(hit_ratio)}
 
 
 def test_one_user(x):
@@ -102,8 +102,8 @@ def test_one_user(x):
     else:
         r, auc = ranklist_by_sorted(user_pos_test, test_items, rating, Ks)
 
-    performance = get_performance(user_pos_test, r, auc, Ks)
-
+    performance = get_performance(user_pos_test, r, Ks)
+    performance['auc'] = auc
     # rating = rating.argsort()[::-1][0:100]
     # rating[rating.argsort()[::-1]] = range(len(rating))
     # rating = rating.astype(int)
@@ -152,9 +152,6 @@ def evaluate(model, test_batch_size, n_items, train_user_dict, test_user_dict, d
     return metrics_dict
 
 def get_orginal_kg(model):
-    """
-    
-    """
     n_relation = (model.n_relations - 1) / 2 - 1
     head, tail = model.edge_index
     edge_type = model.edge_type - 1
@@ -168,30 +165,30 @@ def get_orginal_kg(model):
     return can_triplets_np
 
 def get_masked_info(model, mask):
-    """
-    mask: (N_triplets * 2)
-
-    as we convert the directed graph to undirected graph in the training stage, 
-    the dimension of mask need to be doubled 
-
-    however, the augmented edges are useless in pruning stage, thus we pick them out in this method.
-
-    return masked_triplet_df (DataFrame), all_triplets_df (DataFrame)
-
-    all of them without the virtual edges.
-    """
     n_relation = (model.n_relations - 1) / 2 - 1
+    # can_triplets_np = np.loadtxt(f"{args.data_path}{args.dataset}/{args.kg_file}.txt", dtype=np.int32)
+    
+    # saved_mask_sequence = np.load(f"{args.data_path}{args.dataset}/final_masked_sequence.npy")
+    # mask = (saved_mask_sequence < 0.05).all(axis=0)
+
     
     head, tail = model.edge_index
     edge_type = model.edge_type - 1
 
     can_triplets_np = get_orginal_kg(model)
 
+
     head, tail, edge_type = head.cpu().numpy(), tail.cpu().numpy(), edge_type.cpu().numpy()
     
+    # masked_entities = np.unique(tail[mask])
+    
+    # head_mask = np.where(np.isin(head, masked_entities))[0]
+    
+    # mask = np.union1d(mask, head_mask)
 
     removed_triplets = np.array([head[mask], edge_type[mask], tail[mask]]).transpose(1, 0)
     
+    # removed_triplets = np.loadtxt(f"{args.data_path}{args.dataset}/final_masked_edges.txt", dtype=np.int32)
     
     masked_triplest_df = pd.DataFrame(removed_triplets, columns=["h", "r", "t"])
     
@@ -204,12 +201,7 @@ def get_masked_info(model, mask):
     return masked_triplest_df, all_triplets_df
 
 def save_unpruned_node(model, mask_file, saved_pruned_kg_file):
-    """
-    mask_file: str, the location of mask_info 
-    saved_pruned_kg_file: str, the location to be saved in.
-    as we save the mask info in the update_q_mask in modules/MaskePrundNode.py,
-    this method is designed for directly read the saved mask_file to get the pruned_kg
-    """
+
     mask = np.load(mask_file)
     masked_triplest_df, all_triplets_df = get_masked_info(model, mask)
     
@@ -232,7 +224,7 @@ def test(model, user_dict, n_params, epoch=-1):
     train_user_set = user_dict['train_user_set']
     test_user_set = user_dict['test_user_set']
 
-    pool = multiprocessing.Pool(cores)
+    # pool = multiprocessing.Pool(cores)
 
     u_batch_size = BATCH_SIZE
     i_batch_size = BATCH_SIZE
@@ -264,7 +256,7 @@ def test(model, user_dict, n_params, epoch=-1):
         if batch_test_flag:
             # batch-item test
             n_item_batchs = n_items // i_batch_size + 1
-            rate_batch = np.zeros(shape=(len(user_batch), n_items))
+            rate_batch = torch.zeros((len(user_batch), n_items))
 
             i_count = 0
             for i_batch_id in range(n_item_batchs):
@@ -274,7 +266,7 @@ def test(model, user_dict, n_params, epoch=-1):
                 item_batch = torch.LongTensor(np.array(range(i_start, i_end))).view(i_end-i_start).to(device)
                 i_g_embddings = entity_gcn_emb[item_batch]
 
-                i_rate_batch = model.rating(u_g_embeddings, i_g_embddings).detach().cpu()
+                i_rate_batch = model.rating(u_g_embeddings, i_g_embddings).detach()
 
                 rate_batch[:, i_start: i_end] = i_rate_batch
                 i_count += i_rate_batch.shape[1]
@@ -284,10 +276,32 @@ def test(model, user_dict, n_params, epoch=-1):
             # all-item test
             item_batch = torch.LongTensor(np.array(range(0, n_items))).view(n_items, -1).to(device)
             i_g_embddings = entity_gcn_emb[item_batch]
-            rate_batch = model.rating(u_g_embeddings, i_g_embddings).detach().cpu()
+            rate_batch = model.rating(u_g_embeddings, i_g_embddings).detach()
 
-        user_batch_rating_uid = zip(rate_batch, user_list_batch)
-        batch_result = pool.map(test_one_user, user_batch_rating_uid)
+        maxK = max(Ks)
+        for i, u in enumerate(user_list_batch):
+            try:
+                training_items = train_user_set[u]
+            except Exception:
+                training_items = []
+            # user u's items in the test set
+            rate_batch[i][training_items] = -np.inf
+        
+        rate_topK_val, rate_topk_idx = torch.topk(rate_batch, k=maxK, largest=True, dim=-1)
+        # user_batch_rating_uid = zip(rate_batch, user_list_batch)
+        batch_result = []
+        for u, rate_topk in zip(user_list_batch, rate_topk_idx):
+            r = []
+            user_pos_test = test_user_set[u]
+            for idx in rate_topk:
+                if idx.item() in user_pos_test:
+                    r.append(1)
+                else:
+                    r.append(0)
+            performance = get_performance(user_pos_test, r, Ks)
+
+            batch_result.append(performance)
+        # batch_result = pool.map(test_one_user, user_batch_rating_uid)
         count += len(batch_result)
 
         for re in batch_result:
@@ -295,8 +309,8 @@ def test(model, user_dict, n_params, epoch=-1):
             result['recall'] += re['recall']/n_test_users
             result['ndcg'] += re['ndcg']/n_test_users
             result['hit_ratio'] += re['hit_ratio']/n_test_users
-            result['auc'] += re['auc']/n_test_users
+            # result['auc'] += re['auc']/n_test_users
             # result["ratings"].append(re["rating"])
     assert count == n_test_users
-    pool.close()
+    # pool.close()
     return result
