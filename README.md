@@ -16,27 +16,20 @@ This is the Pytorch implementation for KGPR.
 
 ### Pruned model training
 
-#### last-fm
+#### amazon-book
 ```
-python main.py --dataset last-fm --is_two_hop 
+python main.py --dataset amazon-book --model mask_node_final
 ```
 
-#### yelp2018
+#### last-fm
 ```
-python main.py --dataset yelp2018 --is_two_hop
+python main.py --dataset last-fm --model mask_node_final 
 ```
 
 ### Create pruned knowledge graph
 
-edit the `main.py` as following
 ```
-## train()
-predict()
-```
-#### last-fm
-
-```
-python main.py --dataset last-fm --is_two_hop --pretrain_model_path=<saved model path>
+python main.py --pretrain_model_path=<saved model path>
 ```
 
 ## Training with pruned knowledge graph
