@@ -376,8 +376,13 @@ def epoch_mean(args, ent_scores, model):
 
     for epoch in epochs:
         yield ent_scores[args.start_epoch:epoch].mean(axis=0), f"{epoch}"
-        if epoch == 5:
-            yield ent_scores[epoch], f"{epoch}_str"
+
+def epoch_single(args, ent_scores, model):
+
+    epochs= [5]
+
+    for epoch in epochs:
+        yield ent_scores[epoch], f"{epoch}_str"
 
 def epoch_last(args, ent_scores, model):
     return [(ent_scores[-1], "last_epoch")]
@@ -412,72 +417,61 @@ def recreate_kgfile_by_percentile(model, args, save_dir=None):
     head = head[org_index]
     methods =  ["sum",  "mul"]
     can_triplets_np = get_orginal_kg(model)
-    for method_name in methods:
-        if method_name == "model":
-            ops = ["model"]
 
-        for op in ops:
-            if op == "epoch":
-                method = epoch_mean
-            elif op == "last":
-                method = epoch_last
-            elif op == "model":
-                method = model_mask
-            else:
-                raise Exception("op error")
+    op = ""
+    if args.dataset == "amazon-book":
+        op = "epoch_single"
+        method_name = "mul"
+    elif args.dataset == "alibaba-fashion":
+        op = "epoch"
+        method_name = "mul"
+    elif args.dataset == "lastfm":
+        op = "epoch"
+        method_name = "sum"
+    
+    if op == "epoch":
+        method = epoch_mean
+    elif op == "epoch_single":
+        method = epoch_single
+    elif op == "last":
+        method = epoch_last
+    else:
+        raise Exception("op error")
             
-            for mean_scores, name in method(args, ent_scores, model):
-                
-                if method_name.__contains__("model"):
-                    triplet_mask, _  = model.getmask()
-                    edge_scores = triplet_mask[org_index].detach().cpu().numpy()
-
-                elif method_name.__contains__("agg"):
-                    personal_score = mean_scores[tail_index]
-                    local_score = (1 - torch.cosine_similarity(ent_agg[head], ent_agg[tail]).detach().cpu().numpy()) / 2
-                    # edge_scores = np.sqrt(personal_score * local_score)
-                    # edge_scores = 2 * 1 / ( 1 / (personal_score + 1e-10) + 1 / (local_score + 1e-10))
-                    edge_scores = np.min([personal_score, local_score], axis=0)
-                elif method_name == "sum":
-                    head_score, tail_score = mean_scores[head_index], mean_scores[tail_index]
-                    edge_scores = []
-                    # 0 denotes only consider the tail score
-                    for i in [0]:
-                        edge_scores.append((i * head_score + (1 - i) * tail_score, "beta" + str(i)))
-                elif method_name == "min":
-                    edge_scores = np.min([mean_scores[tail_index], mean_scores[head_index]], axis=0)
-                elif method_name == "mul":
-                    edge_scores = []
-                    head_score, tail_score = mean_scores[head_index], mean_scores[tail_index]
-                    for i in [ 0.5]:
-                        edge_scores.append(((head_score** i) * (tail_score** (1 - i)) , "beta" + str(i)))
-                    # edge_scores = mean_scores[tail_index] * mean_scores[head_index]
-                else:
-                    raise Exception("not support method name")
-                # edge_scores = 2 * 1 / ( 1 / (mean_scores[tail_index] + 1e-10) + 1 / (mean_scores[head_index] + 1e-10))
-                # edge_scores = np.sqrt(mean_scores[tail_index] * mean_scores[head_index])
-                # edge_scores = np.min([mean_scores[tail[org_index].detach().cpu().numpy()], mean_scores[head[org_index].detach().cpu().numpy()]], axis=0)
-                
-                save_kg_dir = os.path.join(save_dir, f"{method_name}_{name}")
-                if not os.path.exists(save_kg_dir):
-                    os.makedirs(save_kg_dir)
-                
-                if type(edge_scores) != list:
-                    edge_scores = [(edge_scores, "n")]
-                for edge_score, edge_name in edge_scores:
-                    for percentile in [10,20,30, 40, 50, 60, 70, 80, 90, 95, 98]:
-                        save_kg_file = os.path.join(save_kg_dir, f"{args.dataset}_{method_name}_kgpr_percentile{percentile}_{name}_{edge_name}.txt")
-                        saved_kg_idx = np.argsort(-edge_score)[:len(edge_score) * (100 - percentile) // 100]
-                        saved_triplets = can_triplets_np[saved_kg_idx]
-                        np.savetxt(save_kg_file, saved_triplets, fmt='%i')
-                    if args.dataset in ["alibaba-fashion", "amazon-book", "last-fm"]:
-                        min_score = edge_score[edge_score > 0].min()
-                        edge_score = (edge_score - min_score) / (edge_score.max()  - min_score)
-                    for th in [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9, 1.0]:
-                        save_kg_file = os.path.join(save_kg_dir, f"{args.dataset}_{method_name}_kgpr_th_{th}_{name}_{edge_name}.txt")
-                        saved_kg_idx = np.where(edge_score >= th)[0]
-                        saved_triplets = can_triplets_np[saved_kg_idx]
-                        np.savetxt(save_kg_file, saved_triplets, fmt='%i')
+    for mean_scores, name in method(args, ent_scores, model):
+        
+        if method_name == "sum":
+            head_score, tail_score = mean_scores[head_index], mean_scores[tail_index]
+            edge_scores = []
+            # 0 denotes only consider the tail score
+            for i in [0]:
+                edge_scores.append((i * head_score + (1 - i) * tail_score, "beta" + str(i)))
+        elif method_name == "min":
+            edge_scores = np.min([mean_scores[tail_index], mean_scores[head_index]], axis=0)
+        elif method_name == "mul":
+            edge_scores = []
+            head_score, tail_score = mean_scores[head_index], mean_scores[tail_index]
+            for i in [ 0.5]:
+                edge_scores.append(((head_score** i) * (tail_score** (1 - i)) , "beta" + str(i)))
+            # edge_scores = mean_scores[tail_index] * mean_scores[head_index]
+        else:
+            raise Exception("not support method name")
+        # edge_scores = 2 * 1 / ( 1 / (mean_scores[tail_index] + 1e-10) + 1 / (mean_scores[head_index] + 1e-10))
+        # edge_scores = np.sqrt(mean_scores[tail_index] * mean_scores[head_index])
+        # edge_scores = np.min([mean_scores[tail[org_index].detach().cpu().numpy()], mean_scores[head[org_index].detach().cpu().numpy()]], axis=0)
+        
+        save_kg_dir = os.path.join(save_dir, f"saved_kg")
+        if not os.path.exists(save_kg_dir):
+            os.makedirs(save_kg_dir)
+        
+        if type(edge_scores) != list:
+            edge_scores = [(edge_scores, "n")]
+        for edge_score, edge_name in edge_scores:
+            for percentile in [10,20,30, 40, 50, 60, 70, 80, 90, 95, 98]:
+                save_kg_file = os.path.join(save_kg_dir, f"{args.dataset}_{method_name}_kgpr_percentile{percentile}_{name}_{edge_name}.txt")
+                saved_kg_idx = np.argsort(-edge_score)[:len(edge_score) * (100 - percentile) // 100]
+                saved_triplets = can_triplets_np[saved_kg_idx]
+                np.savetxt(save_kg_file, saved_triplets, fmt='%i')
         
     
 def load_model(model, model_path):

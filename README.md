@@ -32,6 +32,8 @@ python main.py --dataset last-fm --model mask_node_final
 python main.py --pretrain_model_path=<saved model path>
 ```
 
+Then you can find the pruned kg in your `<saved model path>/saved_kg`
+
 ## Training with pruned knowledge graph
 
 - download the SOTA model, such as [KGIN](https://github.com/huangtinglin/Knowledge_Graph_based_Intent_Network/blob/main/modules/KGIN.py), [KGAT](https://github.com/LunaBlack/KGAT-pytorch).
